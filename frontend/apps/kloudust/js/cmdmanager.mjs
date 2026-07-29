@@ -12,7 +12,7 @@ const REGISTERED_COMMANDS = {}, KLOUDUST_CMDLINE = "kloudust_cmdline", AUTOMATIO
     ALERT_ERROR = "error", ALERT_INFO = "info", RAW_COMMANDLINE_COMMAND = "RAW_COMMANDLINE", 
     TABLE_DISPLAY = "table_display", apiman = $$.libapimanager;
 
-const cmd_stack = [];
+const cmd_stack = [], _alertListeners = [];
 
 /**
  * Registers the given command object.
@@ -66,11 +66,19 @@ async function formSubmitted(id, values) {
 function addAlert(id, text, isError) {
     const formattedAlert = {type: isError?ALERT_ERROR:ALERT_INFO, message: text};
     const alertObject = $$.libsession.get(ALERT_OBJECT_KEY, {});
+    const isNewStack = !alertObject[id];
     const thisAlertStack = alertObject[id]||[];
     thisAlertStack.push(formattedAlert);
     alertObject[id] = thisAlertStack;
     $$.libsession.set(ALERT_OBJECT_KEY, alertObject);
+
+    // notify any live listeners (e.g. an open alerts panel) so they can update without a manual reload
+    for (const listener of _alertListeners) try {listener(id, formattedAlert, isNewStack);}
+        catch (err) {LOG.error(`Alert listener failed: ${err}`);}
 }
+
+const addAlertListener = listener => {if (!_alertListeners.includes(listener)) _alertListeners.push(listener);};
+const removeAlertListener = listener => {const i = _alertListeners.indexOf(listener); if (i != -1) _alertListeners.splice(i, 1);};
 
 function getAlerts() {
     const alertObject = $$.libsession.get(ALERT_OBJECT_KEY, {});
@@ -135,4 +143,5 @@ async function _getFormHTML(formJSON) {
 }
 
 export const cmdmanager = {registerCommand, cmdClicked, formSubmitted, closeForm, addAlert, getAlerts, clearAlerts,
-    reloadForm, isCloudAdminLoggedIn: roleman.isCloudAdminLoggedIn, ALERT_ERROR, ALERT_INFO};
+    addAlertListener, removeAlertListener, reloadForm, isCloudAdminLoggedIn: roleman.isCloudAdminLoggedIn,
+    ALERT_ERROR, ALERT_INFO};

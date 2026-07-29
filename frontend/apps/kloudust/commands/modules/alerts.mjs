@@ -125,9 +125,9 @@ span#alerticon img {height: 100%;}
 <div id="close" onclick='event.stopPropagation(); monkshu_env.apps[APP_CONSTANTS.APP_NAME].cmdmanager.closeForm(this)'>X</div>
 </span>
 
-<div id="main">
+<div id="main" data-kd-alerts>
 {{^alert_stacks}}
-<div id="alertdiv"><span id="alerticon"><img src="{{{info_icon}}}"></span><span id="alertmessage">No alerts.</span></div>
+<div id="alertdiv" data-kd-noalerts><span id="alerticon"><img src="{{{info_icon}}}"></span><span id="alertmessage">No alerts.</span></div>
 {{/alert_stacks}}
 {{#alert_stacks}}
     <span id="alertpartition" onclick="
@@ -136,7 +136,7 @@ span#alerticon img {height: 100%;}
         if (containerThis.classList.contains('visible')) this.innerText = this.innerText.replace('>','⌄');
         else this.innerText = this.innerText.replace('⌄','>');
     ">&gt;&nbsp;{{{heading}}}</span>
-    <div id="alertcontainer">
+    <div id="alertcontainer" data-alertid="{{{id}}}">
     {{#alerts}}
     <div id="alertdiv"><span id="alerticon"><img src="{{{alerticon}}}"></span><span id="alertmessage">{{{message}}}</span></div>
     {{/alerts}}
@@ -151,7 +151,7 @@ async function getHTML(_formJSON, cmdmanager) {
     const alertsObject = cmdmanager.getAlerts();
     const alertIDsSorted = Object.keys(alertsObject).sort((a, b) => a - b);
     let alertStackObjects; for (const alertID of alertIDsSorted) {
-        const alertStackObject = {heading: $$.libutil.encodeHTMLEntities(alertsObject[alertID][0].message), alerts: []};
+        const alertStackObject = {id: alertID, heading: $$.libutil.encodeHTMLEntities(alertsObject[alertID][0].message), alerts: []};
         for (const alert of alertsObject[alertID]) {
             if (alert.type == cmdmanager.ALERT_ERROR) alert.error = true;
             alert.alerticon = alert.error?`${RESOURCES_PATH}/alerts_error.svg`:`${RESOURCES_PATH}/alerts_info.svg`;
@@ -162,7 +162,46 @@ async function getHTML(_formJSON, cmdmanager) {
     }
     const html = await $$.librouter.expandPageData(HTML_TEMPLATE, undefined, {alert_stacks: alertStackObjects, 
         clear_icon: `${RESOURCES_PATH}/alerts_clear.svg`, info_icon: `${RESOURCES_PATH}/alerts_info.svg`});
+
+    // register a one-time listener so that, while this panel is open, new alerts append into the live DOM
+    // (keeping scroll position and any expanded stacks) instead of needing a manual reload
+    _cmdmanager = cmdmanager;
+    if (!_listenerRegistered) {cmdmanager.addAlertListener(_onAlertReceived); _listenerRegistered = true;}
+
     return html;
 }
+
+/** Builds the HTML for a single alert row, matching the mustache template above. */
+function _alertRowHTML(alert) {
+    const icon = alert.type == _cmdmanager.ALERT_ERROR ? `${RESOURCES_PATH}/alerts_error.svg` : `${RESOURCES_PATH}/alerts_info.svg`;
+    const message = $$.libutil.encodeHTMLEntities(alert.message).replaceAll(/\r?\n/g, "<br/>");
+    return `<div id="alertdiv"><span id="alerticon"><img src="${icon}"></span><span id="alertmessage">${message}</span></div>`;
+}
+
+/** Builds the HTML for a new alert stack (partition + container), matching the mustache template above. */
+function _alertStackHTML(id, alert) {
+    const heading = $$.libutil.encodeHTMLEntities(alert.message);
+    return `<span id="alertpartition" onclick="
+        const containerThis = this.nextElementSibling;
+        containerThis.classList.toggle('visible');
+        if (containerThis.classList.contains('visible')) this.innerText = this.innerText.replace('>','⌄');
+        else this.innerText = this.innerText.replace('⌄','>');
+    ">&gt;&nbsp;${heading}</span>
+    <div id="alertcontainer" data-alertid="${id}">${_alertRowHTML(alert)}</div>`;
+}
+
+/** Appends an incoming alert into the open panel, if one is currently displayed. */
+function _onAlertReceived(id, alert, isNewStack) {
+    const main = document.querySelector("#maincontent [data-kd-alerts]");
+    if (!main) return;  // alerts panel not currently open - nothing to update
+
+    const placeholder = main.querySelector("[data-kd-noalerts]"); if (placeholder) placeholder.remove();
+
+    const container = isNewStack ? null : main.querySelector(`[data-alertid="${id}"]`);
+    if (container) container.insertAdjacentHTML("beforeend", _alertRowHTML(alert));
+    else main.insertAdjacentHTML("beforeend", _alertStackHTML(id, alert));
+}
+
+let _cmdmanager, _listenerRegistered = false;
 
 export const alerts = {getHTML};

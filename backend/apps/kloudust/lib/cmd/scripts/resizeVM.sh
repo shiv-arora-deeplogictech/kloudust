@@ -32,6 +32,15 @@ function testDiskNameProvided() {
     if [ -z $DISK_NAME ]; then exitFailed "Disk name must be provided."; fi
 }
 
+
+function nextFreeDevice() {
+    local XML=`virsh dumpxml $NAME`
+    local PREFIX=`echo "$XML" | grep -Pzo "<disk(.|\n)*?/kloudust/disks(.|\n)*?</disk>" | tr '\0' '\n' | grep -oP "<target.*?dev='\K[a-z][a-z]" | head -n1`
+    local USED=`echo "$XML" | grep -Pzo "<disk(.|\n)*?</disk>" | tr '\0' '\n' | grep -oP "<target.*?dev='\K\w+"`
+    if [ -z "$PREFIX" ]; then return; fi
+    for L in {a..z}; do grep -qx "$PREFIX$L" <<< "$USED" || { echo "$PREFIX$L"; return; }; done
+}
+
 SPACE_PATTERN=" |'"
 if [[ $NAME =~ $SPACE_PATTERN ]]; then 
     exitFailed "VM name $NAME can't have spaces.\n"
@@ -56,19 +65,16 @@ fi
 
 if [ $ADDITIONAL_DISK ] && [ "$INPLACE_DISK_RESIZE" != "true" ]; then
     testDiskNameProvided
-    NUM_OF_DRIVES_MAPPED=`virsh dumpxml $NAME | grep -Pnzo "\<disk(.|\n)*?\/kloudust\/disks(.|\n)*?\<\/disk\>" | xargs --null | grep -oP "\<target.*?dev=\K'\w+'" | nl | tail -n1 | tr -s " " | xargs | cut -d" " -f1`
-    if [ -z $NUM_OF_DRIVES_MAPPED ]; then exitFailed "Unable to find number of drives mapped."; fi
-    DRIVE_START_LETTERS=`virsh dumpxml $NAME | grep -Pnzo "\<disk(.|\n)*?\/kloudust\/disks(.|\n)*?\<\/disk\>" | xargs --null | grep -oP "\<target.*?dev=\K'\w+'" | nl | tail -n1 | tr -s " " | xargs | cut -d" " -f2 | cut -c 1-2`
-    if [ -z $NUM_OF_DRIVES_MAPPED ]; then exitFailed "Unable to parse domain XML for drive letter patterns."; fi
-    ALPHABET=({a..z})
-    NEXT_DRIVE_ENDDING_LETTER=`echo "${ALPHABET[$NUM_OF_DRIVES_MAPPED]}"`
-    NEXT_DRIVE_NAME="$DRIVE_START_LETTERS""$NEXT_DRIVE_ENDDING_LETTER"
+    NEXT_DRIVE_NAME=`nextFreeDevice`
+    if [ -z "$NEXT_DRIVE_NAME" ]; then exitFailed "Unable to find a free device name for the disk."; fi
     DISK_FILE=/kloudust/disks/"$NAME"_"$DISK_NAME".qcow2
     echo "Drive to map is $DISK_FILE at device $NEXT_DRIVE_NAME"
     if ! qemu-img create -f qcow2 $DISK_FILE "$ADDITIONAL_DISK"G; then 
         exitFailed Disk allocation failed for $NAME for size $ADDITIONAL_DISK GB
     fi
-    if ! virt-format -a $DISK_FILE --filesystem=ext4; then exitFailed "Disk initialization failed."; fi
+    FS=ext4
+    if virsh dumpxml $NAME | grep -q "microsoft.com/win/"; then FS=ntfs; fi   # virt-install records the OS variant, e.g. microsoft.com/win/10
+    if ! virt-format -a $DISK_FILE --filesystem=$FS; then exitFailed "Disk initialization failed."; fi
     if ! virsh attach-disk $NAME $DISK_FILE $NEXT_DRIVE_NAME --persistent --config --subdriver qcow2; then 
         exitFailed Attachment of the new disk at $DISK_FILE to $NAME failed.
     fi
@@ -90,13 +96,8 @@ fi
 
 if [ "$ATTACH_DISK" == "true" ]; then
     testDiskNameProvided
-    NUM_OF_DRIVES_MAPPED=`virsh dumpxml $NAME | grep -Pnzo "\<disk(.|\n)*?\/kloudust\/disks(.|\n)*?\<\/disk\>" | xargs --null | grep -oP "\<target.*?dev=\K'\w+'" | nl | tail -n1 | tr -s " " | xargs | cut -d" " -f1`
-    if [ -z $NUM_OF_DRIVES_MAPPED ]; then exitFailed "Unable to find number of drives mapped."; fi
-    DRIVE_START_LETTERS=`virsh dumpxml $NAME | grep -Pnzo "\<disk(.|\n)*?\/kloudust\/disks(.|\n)*?\<\/disk\>" | xargs --null | grep -oP "\<target.*?dev=\K'\w+'" | nl | tail -n1 | tr -s " " | xargs | cut -d" " -f2 | cut -c 1-2`
-    if [ -z $NUM_OF_DRIVES_MAPPED ]; then exitFailed "Unable to parse domain XML for drive letter patterns."; fi
-    ALPHABET=({a..z})
-    NEXT_DRIVE_ENDDING_LETTER=`echo "${ALPHABET[$NUM_OF_DRIVES_MAPPED]}"`
-    NEXT_DRIVE_NAME="$DRIVE_START_LETTERS""$NEXT_DRIVE_ENDDING_LETTER"
+    NEXT_DRIVE_NAME=`nextFreeDevice`
+    if [ -z "$NEXT_DRIVE_NAME" ]; then exitFailed "Unable to find a free device name for the disk."; fi
     DISK_FILE=/kloudust/disks/"$NAME"_"$DISK_NAME".qcow2
     if ! virsh attach-disk $NAME $DISK_FILE $NEXT_DRIVE_NAME --persistent --config --subdriver qcow2; then 
         exitFailed Attachment of the disk $DISK_NAME to $NAME failed.

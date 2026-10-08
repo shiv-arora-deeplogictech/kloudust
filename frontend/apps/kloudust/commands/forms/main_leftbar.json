@@ -3,7 +3,7 @@
 "cloudadmin": [
     {"id": "cloudadmin", "label": "{{{i18n.CloudAdmin}}}", "logo": "img/cloudadmin.svg"},
     {"id": "automations", "label": "{{{i18n.Automations}}}", "logo": "img/automations.svg"},
-    {"id": "monitoring", "label": "{{{i18n.Monitoring}}}", "logo": "img/monitoring.svg"}
+    {"id": "monitoring", "label": "{{{i18n.Monitoring}}}", "logo": "img/monitoring.svg", "embeddedapp": "monkvision"}
 ],
 "orgadmin": [
     {"id": "cloudadmin", "label": "{{{i18n.CloudAdmin}}}", "logo": "img/cloudadmin.svg"},

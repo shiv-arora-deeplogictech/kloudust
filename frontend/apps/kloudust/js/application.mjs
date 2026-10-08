@@ -28,6 +28,12 @@ const init = async hostname => {
 	// setup debug mode for the framework
 	if (APP_CONSTANTS.INSECURE_DEVELOPMENT_MODE) $$.MONKSHU_CONSTANTS.setDebugLevel($$.MONKSHU_CONSTANTS.DEBUG_LEVELS.refreshOnReload);
 
+	// init embedded app interceptors
+	for (const embeddedApp of APP_CONSTANTS.EMBEDDED_APPS||[]) try {
+		const module = await import(`${APP_CONSTANTS.APP_PATH}/${embeddedApp.interceptor}`);
+		await module[Object.keys(module)[0]].init(embeddedApp);
+	} catch (err) {LOG.error(`Embedded app ${embeddedApp.name} failed to init: ${err}`);}
+
 	// setup remote logging
 	/*const API_GETREMOTELOG = APP_CONSTANTS.API_PATH+"/getremotelog", API_REMOTELOG = APP_CONSTANTS.API_PATH+"/log";
 	let remoteLogResponse = false; try {remoteLogResponse = await apiman.rest(API_GETREMOTELOG, "GET")} catch (err) {};

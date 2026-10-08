@@ -46,7 +46,7 @@ export const APP_CONSTANTS = {
     ACTIVE_PROJECT: "project",
     DEFAULT_PROJECT: "default",
     ASSIGNED_PROJECTS_SESSION_KEY: "_org_kloudust_projects_assigned_",
-    MONKVISION_LOGIN_RESULT_KEY: "_org_kloudust_monkvision_login_result_",
+    EMBEDDED_APP_LOGIN_KEY_PREFIX: "_org_kloudust_embedded_app_login_",
     KLOUDUST_ROLES: Object.freeze({cloudadmin: "cloudadmin", orgadmin: "orgadmin", user: "user"}),
 
     TKMLOGIN_LIB: `${APP_PATH}/3p/tkmlogin.mjs`,

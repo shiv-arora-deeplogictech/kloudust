@@ -5,14 +5,11 @@
  */
 
 const apiman = $$.libapimanager;
-let currTimeout; let logoutListeners = [];
+let currTimeout; const logoutListeners = [], loginListeners = [];
 
-async function handleLoginResult(fetchResponse, monkvisionFetchResponse) {
-    logoutListeners = [];   // reset listeners on sign in
-
+async function handleLoginResult(fetchResponse) {
     const apiURL = fetchResponse.url, headers = fetchResponse.headers, jsonResponseObject = fetchResponse.response;
-    const monkvisionResponse = monkvisionFetchResponse?.response;
-    if (jsonResponseObject?.result && (!APP_CONSTANTS.USE_MONITORING || monkvisionResponse?.result)) {
+    if (jsonResponseObject?.result) {
         apiman.addJWTToken(apiURL, headers, jsonResponseObject);
 
         const projectsLookupResult = await $$.libapimanager.rest(APP_CONSTANTS.API_KLOUDUSTCMD, 'POST', {cmd: 'getUserProjects'}, true);
@@ -22,13 +19,6 @@ async function handleLoginResult(fetchResponse, monkvisionFetchResponse) {
             return;
         } else $$.libsession.set(APP_CONSTANTS.ASSIGNED_PROJECTS_SESSION_KEY, projectsLookupResult.projects);
 
-        if (APP_CONSTANTS.USE_MONITORING) {
-            apiman.addJWTToken(monkvisionFetchResponse.url, monkvisionFetchResponse.headers, monkvisionResponse);
-            const monkvisionLoginURL = new URL(monkvisionFetchResponse.url);
-            $$.libsession.set(APP_CONSTANTS.MONKVISION_LOGIN_RESULT_KEY, {
-                ...monkvisionFetchResponse, url: `${monkvisionLoginURL.origin}${monkvisionLoginURL.pathname}`});
-        }
-
         $$.libsession.set(APP_CONSTANTS.USERID, jsonResponseObject.id); 
         $$.libsession.set(APP_CONSTANTS.USERNAME, jsonResponseObject.name);
         $$.libsession.set(APP_CONSTANTS.USERORG, jsonResponseObject.org);
@@ -36,19 +26,21 @@ async function handleLoginResult(fetchResponse, monkvisionFetchResponse) {
         $$.libsecurityguard.setCurrentRole(APP_CONSTANTS.USER_ROLE);  // we only have user and guest at this level 
         if (!APP_CONSTANTS.INSECURE_DEVELOPMENT_MODE) startAutoLogoutTimer();   
         $$.librouter.loadPage(APP_CONSTANTS.MAIN_HTML);
-    } else {LOG.error(`Kloudust or MonkVision login failed.`); $$.librouter.loadPage(`${APP_CONSTANTS.LOGIN_HTML}?_error=true`);}
+    } else {LOG.error(`Login failed.`); $$.librouter.loadPage(`${APP_CONSTANTS.LOGIN_HTML}?_error=true`);}
 }
 
 const addLogoutListener = listener => logoutListeners.push(listener);
 
+/** Listeners get the loginapp result URL before Kloudust verifies its JWT, as Kloudust's verify expires it */
+const addLoginListener = listener => loginListeners.push(listener);
+
+async function runLoginListeners(resultURL) {
+    for (const listener of loginListeners) try {await listener(resultURL);}
+        catch (err) {LOG.error(`Login listener failed: ${err}`);}
+}
+
 async function logout() {
     for (const listener of logoutListeners) await listener();
-
-    if (APP_CONSTANTS.USE_MONITORING) {
-        const monkvisionFrame = document.getElementById("monkvision");
-        if (monkvisionFrame?.contentWindow) monkvisionFrame.contentWindow.postMessage(
-            {type: "kloudust:monkvision-logout"}, new URL(APP_CONSTANTS.MONKVISION_FRONTEND_URL).origin);
-    }
 
     const savedLang = $$.libsession.get($$.MONKSHU_CONSTANTS.LANG_ID);
     _stopAutoLogoutTimer(); $$.libsession.destroy(); 
@@ -80,4 +72,5 @@ function _stopAutoLogoutTimer() {
     if (currTimeout) {clearTimeout(currTimeout); currTimeout = null;}
 }
 
-export const loginmanager = {handleLoginResult, logout, startAutoLogoutTimer, addLogoutListener, interceptPageLoadData}
+export const loginmanager = {handleLoginResult, logout, startAutoLogoutTimer, addLogoutListener, addLoginListener,
+    runLoginListeners, interceptPageLoadData}

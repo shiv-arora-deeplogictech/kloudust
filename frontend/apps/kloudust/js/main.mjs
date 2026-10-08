@@ -53,8 +53,8 @@ function hideOpenContent(disableAnimation) {showContent(undefined, disableAnimat
 const interceptPageLoadData = _ => $$.librouter.addOnLoadPageData(APP_CONSTANTS.MAIN_HTML, async (data, _url) => {
     const mustache = await $$.librouter.getMustache(), mainPageData = {};
     mainPageData.welcomeHeading = mustache.render(await $$.libi18n.get("WelcomeHeading"), {user: $$.libsession.get(APP_CONSTANTS.USERNAME)});
-    mainPageData.leftbarCommands = await cmdlist.fetchCommands(LEFTBAR_COMMANDS);
-    if (!APP_CONSTANTS.USE_MONITORING) mainPageData.leftbarCommands = mainPageData.leftbarCommands.filter(command => command.id != "monitoring");
+    mainPageData.leftbarCommands = (await cmdlist.fetchCommands(LEFTBAR_COMMANDS)).filter(command => !command.embeddedapp ||
+        $$.libsession.get(APP_CONSTANTS.EMBEDDED_APP_LOGIN_KEY_PREFIX+command.embeddedapp));
     mainPageData.mainCommands = await cmdlist.fetchCommands(MAIN_COMMANDS);
     const projectsLookupResult = await window.monkshu_env.frameworklibs.apimanager.rest(APP_CONSTANTS.API_KLOUDUSTCMD, 
         'POST', {cmd: 'getUserProjects'}, true);

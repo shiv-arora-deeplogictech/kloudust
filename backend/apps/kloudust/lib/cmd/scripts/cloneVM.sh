@@ -1,21 +1,30 @@
 #!/bin/bash
 
+CLONE_CREATED=false
+CLONE_PATHS=()
+
 function exitFailed() {
+    if [ "$CLONE_CREATED" == "true" ]; then
+        echo Removing the partially created clone {2}
+        sudo virsh undefine {2} --nvram
+        sudo rm -f "${CLONE_PATHS[@]}" /kloudust/metadata/{2}.metadata /kloudust/metadata/{2}.xml /kloudust/system/firewall/fw_{2}_*.sh
+    fi
     echo Failed
     exit 1
 }
 
 printf "Cloning VM {1} to {2}\n"
-CLONE_FILES=()
 for SRC in `sudo virsh domblklist {1} --details | awk '$2=="disk" {print $4}'`; do
     if [[ "$SRC" != "/kloudust/disks/{1}."* && "$SRC" != "/kloudust/disks/{1}_"* ]]; then
         echo Error!! Disk $SRC is not named after {1}, unable to name its clone.
         exitFailed
     fi
-    CLONE_FILES+=(--file "/kloudust/disks/{2}${SRC#"/kloudust/disks/{1}"}")
+    CLONE_PATHS+=("/kloudust/disks/{2}${SRC#"/kloudust/disks/{1}"}")
 done
-if [ ${#CLONE_FILES[@]} -eq 0 ]; then echo Error!! No disks found for {1}.; exitFailed; fi
+if [ ${#CLONE_PATHS[@]} -eq 0 ]; then echo Error!! No disks found for {1}.; exitFailed; fi
+CLONE_FILES=(); for P in "${CLONE_PATHS[@]}"; do CLONE_FILES+=(--file "$P"); done
 if ! sudo virt-clone --original {1} --name {2} "${CLONE_FILES[@]}"; then exitFailed; fi
+CLONE_CREATED=true
 
 printf "\n\nResetting clone identity\n"
 if ! sudo virt-sysprep --domain {2} --hostname "{3}" \
@@ -30,6 +39,15 @@ NAME={2}
 EOF"
 cat /kloudust/metadata/{1}.metadata | grep -v NAME | sudo tee -a /kloudust/metadata/{2}.metadata > /dev/null
 if ! sudo virsh dumpxml {2} > /kloudust/metadata/{2}.xml; then exitFailed; fi
+
+printf "\n\nCopying firewall rules\n"
+for VNET in {4}; do
+    FW_SRC=/kloudust/system/firewall/fw_{1}_$VNET.sh
+    FW_DST=/kloudust/system/firewall/fw_{2}_$VNET.sh
+    if [ ! -f $FW_SRC ]; then echo Warning!! $FW_SRC not found, skipping.; continue; fi
+    if ! sudo sed 's/^VM_NAME=.*/VM_NAME="{2}"/' $FW_SRC | sudo tee $FW_DST > /dev/null; then exitFailed; fi
+    if ! sudo chmod 755 $FW_DST; then exitFailed; fi
+done
 
 printf "Enabling autostart"
 if ! sudo virsh autostart {2}; then exitFailed; fi

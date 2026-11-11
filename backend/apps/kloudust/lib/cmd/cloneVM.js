@@ -11,11 +11,10 @@
  * License: See enclosed LICENSE file.
  */
 
+const vmnetwork = require(`${KLOUD_CONSTANTS.LIBDIR}/vmnetwork.js`);
 const roleman = require(`${KLOUD_CONSTANTS.LIBDIR}/roleenforcer.js`);
 const createVM = require(`${KLOUD_CONSTANTS.LIBDIR}/cmd/createVM.js`);
 const deleteVM = require(`${KLOUD_CONSTANTS.LIBDIR}/cmd/deleteVM.js`);
-const addVMVnet = require(`${KLOUD_CONSTANTS.LIBDIR}/cmd/addVMVnet.js`);
-const createVnet = require(`${KLOUD_CONSTANTS.LIBDIR}/cmd/createVnet.js`);
 const dbAbstractor = require(`${KLOUD_CONSTANTS.LIBDIR}/dbAbstractor.js`);
 const {xforge} = require(`${KLOUD_CONSTANTS.THIRD_PARTY_DIR}/xforge/xforge`);
 const CMD_CONSTANTS = require(`${KLOUD_CONSTANTS.LIBDIR}/cmd/cmdconstants.js`);
@@ -66,9 +65,8 @@ async function _cloneVMReal(vm, clone_vm_name, hostInfo, hosting_project, clone_
         params.consoleHandlers.LOGERROR(error); return CMD_CONSTANTS.FALSE_RESULT(error);
     }
 
-    const copyNetworks = !hosting_project || hosting_project == KLOUD_CONSTANTS.env.prj();
+    const copyNetworks = (!hosting_project) || (hosting_project == KLOUD_CONSTANTS.env.prj());
     if (!copyNetworks) params.consoleHandlers.LOGWARN(`Clone ${clone_vm_name} is in another project, VNets and firewalls of ${vm.name} are not copied to it.`);
-    const {vnets, firewalls} = copyNetworks ? await _getVnetsAndFirewalls(vm) : {vnets: [], firewalls: {}};
 
     const xforgeArgs = {
         colors: KLOUD_CONSTANTS.COLORED_OUT,
@@ -77,7 +75,7 @@ async function _cloneVMReal(vm, clone_vm_name, hostInfo, hosting_project, clone_
         other: [
             hostInfo.hostaddress, hostInfo.rootid, hostInfo.rootpw, hostInfo.hostkey, hostInfo.port,
             `${KLOUD_CONSTANTS.LIBDIR}/cmd/scripts/cloneVM.sh`,
-            vm.name, clone_vm_name, clone_vm_name_raw, Object.keys(firewalls).join(" ")
+            vm.name, clone_vm_name, clone_vm_name_raw
         ]
     }
 
@@ -92,24 +90,11 @@ async function _cloneVMReal(vm, clone_vm_name, hostInfo, hosting_project, clone_
         return {...results, result: false};
     }
 
-    for (const vnet of vnets) {
-        if (!await dbAbstractor.addVnetResource(vnet, clone_vm_name, "vnetvm"))
-            params.consoleHandlers.LOGERROR(`DB failed to add clone ${clone_vm_name} to VNet ${vnet}`);
-        for (const ruleset of firewalls[vnet]||[]) if (!await dbAbstractor.addVMVnetFirewall(clone_vm_name, vnet, ruleset))
-            params.consoleHandlers.LOGERROR(`DB failed to add firewall ${ruleset} on VNet ${vnet} to clone ${clone_vm_name}`);
+    if (copyNetworks && !(await vmnetwork.replicate(vm.name, clone_vm_name, params.consoleHandlers)).result) {
+        params.consoleHandlers.LOGERROR(`Network replication from ${vm.name} failed, removing clone ${clone_vm_name}`);
+        const deleteVMParams = [clone_vm_name_raw]; deleteVMParams.consoleHandlers = params.consoleHandlers;
+        await deleteVM.exec(deleteVMParams);
+        return {...results, result: false};
     }
     return results;
-}
-
-async function _getVnetsAndFirewalls(vm) {
-    const backbone = createVnet.resolveVnetName(createVnet.getInternetBackboneVnet()), firewalls = {};
-    const vnets = await addVMVnet.getVMVnetNames(vm.name_raw);
-    for (const vnet of vnets) {
-        if (vnet == backbone) continue; // clones get no public IPs and deleteVM only removes backbone firewalls of VMs with public IPs
-        const rulesets = await Promise.all((await dbAbstractor.getVMVnetFirewall(vm.name, vnet) || []).map(
-            id => dbAbstractor.getFirewallRulesetById(id)));
-        const names = rulesets.filter(ruleset => ruleset).map(ruleset => ruleset.name);
-        if (names.length) firewalls[vnet] = names;
-    }
-    return {vnets, firewalls};
 }

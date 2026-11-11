@@ -19,12 +19,21 @@ VM_NAME="{3}"
 RULESET_NAME="{4}"
 VNET_NAME="{5}"
 BR_NAME="kd${VNET_ID}_br"
+FW_FILE="/kloudust/system/firewall/fw_${VM_NAME}_${VNET_NAME}.sh"
 
 echoerr() { echo "$@" 1>&2; }
 
 function exitFailed() {
     echo Failed
     exit 1
+}
+
+# Persist only if not already running from the firewall directory
+function persistFirewall() {
+    if [ "$0" != "$FW_FILE" ]; then
+        if ! cp "$0" "$FW_FILE"; then exitFailed; fi
+        if ! sudo chmod 755 "$FW_FILE"; then exitFailed; fi
+    fi
 }
 
 # Get VM's MAC address 
@@ -34,6 +43,13 @@ if [ -z "$MAC_ADDRESS" ]; then
     exitFailed
 else
     echo "Found MAC $MAC_ADDRESS for VM attachment to the VNet. Proceeding with firewall setup."
+fi
+
+# Stopped VM has no host interface, the VM start hook replays the persisted script. No virsh from the hook.
+if [ "$0" != "$FW_FILE" ] && [ "`sudo virsh domstate $VM_NAME`" == "shut off" ]; then
+    persistFirewall
+    echo "VM $VM_NAME is stopped, firewall ruleset $RULESET_NAME will be applied when it starts."
+    exit 0
 fi
 
 # Find the vnet interface on the host that corresponds to this VM's MAC
@@ -129,11 +145,7 @@ if [ "$RULES_FAILED" = "1" ]; then
     exitFailed
 fi
 
-# Persist only if not already running from the firewall directory
-if [ "$0" != "/kloudust/system/firewall/fw_${VM_NAME}_${VNET_NAME}.sh" ]; then
-    if ! cp "$0" "/kloudust/system/firewall/fw_${VM_NAME}_${VNET_NAME}.sh"; then exitFailed; fi
-    if ! sudo chmod 755 "/kloudust/system/firewall/fw_${VM_NAME}_${VNET_NAME}.sh"; then exitFailed; fi
-fi
+persistFirewall
 
 echo "Firewall rules applied for $VM_NAME, ruleset $RULESET_NAME and Vnet $VNET_ID"
 exit 0

@@ -7,7 +7,7 @@ function exitFailed() {
     if [ "$CLONE_CREATED" == "true" ]; then
         echo Removing the partially created clone {2}
         sudo virsh undefine {2} --nvram
-        sudo rm -f "${CLONE_PATHS[@]}" /kloudust/metadata/{2}.metadata /kloudust/metadata/{2}.xml /kloudust/system/firewall/fw_{2}_*.sh
+        sudo rm -f "${CLONE_PATHS[@]}" /kloudust/metadata/{2}.metadata /kloudust/metadata/{2}.xml
     fi
     echo Failed
     exit 1
@@ -39,15 +39,6 @@ NAME={2}
 EOF"
 cat /kloudust/metadata/{1}.metadata | grep -v NAME | sudo tee -a /kloudust/metadata/{2}.metadata > /dev/null
 if ! sudo virsh dumpxml {2} > /kloudust/metadata/{2}.xml; then exitFailed; fi
-
-printf "\n\nCopying firewall rules\n"
-for VNET in {4}; do
-    FW_SRC=/kloudust/system/firewall/fw_{1}_$VNET.sh
-    FW_DST=/kloudust/system/firewall/fw_{2}_$VNET.sh
-    if [ ! -f $FW_SRC ]; then echo Warning!! $FW_SRC not found, skipping.; continue; fi
-    if ! sudo sed 's/^VM_NAME=.*/VM_NAME="{2}"/' $FW_SRC | sudo tee $FW_DST > /dev/null; then exitFailed; fi
-    if ! sudo chmod 755 $FW_DST; then exitFailed; fi
-done
 
 printf "Enabling autostart"
 if ! sudo virsh autostart {2}; then exitFailed; fi
